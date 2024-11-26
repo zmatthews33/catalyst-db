@@ -3,17 +3,19 @@ require('dotenv').config();
 const cors = require('cors');
 const express = require('express');
 const bodyParser = require('body-parser');
-const connection = require('./db'); // Import the database connection
+const connection = require('./db');
 
 const app = express();
-app.use(bodyParser.json()); // Middleware to parse JSON request bodies
+app.use(bodyParser.json());
 
 app.use(cors({
-  origin: 'http://127.0.0.1:5173', // Allow only this frontend origin
+  origin: ['http://localhost:5173','http://127.0.0.1:5173', '*'], // Allow only this frontend origin
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type']
 }));
-// Route to store exercise data
+
+app.options('*', cors());
+
 app.post('/store-exercise-data', (req, res) => {
   const {
     name,
@@ -104,6 +106,61 @@ app.post('/store-exercise-data', (req, res) => {
     });
   });
 });
+app.post('/store-exercise-plan', (req, res) => {
+  const {
+    name,
+    email,
+    workouts_per_week,
+    month1Exercises,
+    month2Exercises,
+    month3Exercises
+  } = req.body;
+
+  // Check if email exists and get the highest `test_no` for it
+  const findTestNoQuery = `SELECT MAX(test_no) as maxTestNo FROM exercise_plan_data WHERE email = ?`;
+
+  connection.query(findTestNoQuery, [email], (err, results) => {
+    if (err) {
+      console.error('Error checking test_no:', err);
+      return res.status(500).json({ message: 'Error checking test_no' });
+    }
+
+    // Make sure `results` is defined and has the expected structure
+    if (!results || !results[0] || results[0].maxTestNo === null) {
+      return res.status(400).json({ message: 'No results found or invalid data' });
+    }
+
+    // Determine the next `test_no`
+    const nextTestNo = results[0].maxTestNo ? results[0].maxTestNo + 1 : 1;
+
+    // Insert the new data with the incremented `test_no`
+    const insertQuery = `
+      INSERT INTO exercise_plan_data (
+        name, email, workouts_per_week, month1_exercises, month2_exercises, month3_exercises, test_no
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const values = [
+      name,
+      email,
+      workouts_per_week,
+      JSON.stringify(month1Exercises), // Save as JSON or a delimited string
+      JSON.stringify(month2Exercises),
+      month3Exercises ? JSON.stringify(month3Exercises) : null,
+      nextTestNo
+    ];
+
+    connection.query(insertQuery, values, (err, result) => {
+      if (err) {
+        console.error('Error inserting exercise plan:', err);
+        return res.status(500).json({ message: 'Failed to store exercise plan' });
+      }
+      res.status(201).json({ message: 'Exercise plan stored successfully', test_no: nextTestNo });
+    });
+  });
+});
+
+
 // Start the server
 const PORT = process.env.SERVER_PORT || 3003;
 app.listen(PORT, () => {
