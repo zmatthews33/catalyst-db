@@ -111,29 +111,28 @@ app.post('/store-exercise-plan', (req, res) => {
     name,
     email,
     workouts_per_week,
-    month1Exercises,
-    month2Exercises,
-    month3Exercises
+    month1_exercises,
+    month2_exercises,
+    month3_exercises,
+    test_no
   } = req.body;
 
-  // Check if email exists and get the highest `test_no` for it
-  const findTestNoQuery = `SELECT MAX(test_no) as maxTestNo FROM exercise_plan_data WHERE email = ?`;
+  // Validate input
+  if (!name || !email || !workouts_per_week || !month1_exercises || !month2_exercises || !month3_exercises) {
+    return res.status(400).json({ message: 'Invalid input data' });
+  }
+
+  const findTestNoQuery = `SELECT MAX(test_no) as maxTestNo FROM exercise_testing_data WHERE email = ?`;
 
   connection.query(findTestNoQuery, [email], (err, results) => {
     if (err) {
       console.error('Error checking test_no:', err);
-      return res.status(500).json({ message: 'Error checking test_no' });
+      return res.status(500).json({ message: 'Database error while checking test_no' });
     }
 
-    // Make sure `results` is defined and has the expected structure
-    if (!results || !results[0] || results[0].maxTestNo === null) {
-      return res.status(400).json({ message: 'No results found or invalid data' });
-    }
+    // Handle case where no results are found for the email
+    const nextTestNo = (results && results.length > 0 && results[0].maxTestNo) ? results[0].maxTestNo + 1 : 1;
 
-    // Determine the next `test_no`
-    const nextTestNo = results[0].maxTestNo ? results[0].maxTestNo + 1 : 1;
-
-    // Insert the new data with the incremented `test_no`
     const insertQuery = `
       INSERT INTO exercise_plan_data (
         name, email, workouts_per_week, month1_exercises, month2_exercises, month3_exercises, test_no
@@ -144,22 +143,41 @@ app.post('/store-exercise-plan', (req, res) => {
       name,
       email,
       workouts_per_week,
-      JSON.stringify(month1Exercises), // Save as JSON or a delimited string
-      JSON.stringify(month2Exercises),
-      month3Exercises ? JSON.stringify(month3Exercises) : null,
+      JSON.stringify(month1_exercises), // Store as JSON strings
+      JSON.stringify(month2_exercises),
+      JSON.stringify(month3_exercises),
       nextTestNo
     ];
 
     connection.query(insertQuery, values, (err, result) => {
       if (err) {
-        console.error('Error inserting exercise plan:', err);
-        return res.status(500).json({ message: 'Failed to store exercise plan' });
+        console.error('Error inserting data:', err);
+        return res.status(500).json({ message: 'Failed to store test data' });
       }
-      res.status(201).json({ message: 'Exercise plan stored successfully', test_no: nextTestNo });
+      res.status(201).json({ message: 'Test data stored successfully', test_no: nextTestNo });
     });
   });
 });
 
+app.get("/store-exercise-plan", async (req, res) => {
+  const email = req.query.email;
+  if (!email) return res.status(400).send("Email is required");
+
+  try {
+    connection.execute("SELECT * FROM exercise_plan_data WHERE LOWER(email) = LOWER(?)", [email], (err, result) => {
+      if (err) {
+        console.error("Error during query:", err);
+        return res.status(500).send("Server error");
+      }
+      console.log('Query Result:', result);
+      if (result.length === 0) return res.status(404).send("Client not found");
+      res.json(result);
+    });
+  } catch (err) {
+    console.error("Error during processing:", err);
+    res.status(500).send("Server error");
+  }
+});
 
 // Start the server
 const PORT = process.env.SERVER_PORT || 3003;
